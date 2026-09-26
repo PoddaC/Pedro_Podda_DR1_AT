@@ -12,8 +12,8 @@ st.set_page_config(page_title="Europa vs América do Sul", layout="wide")
 
 # --- IDs confirmados ---
 Torneios = {
-    "UEFA Euro 2024": {"competition_id": 223, "season_id": 282, "continente":"América do Sul"},
-    "Copa América 2024": {"competition_id": 55, "season_id": 282, "continente":"Europa"},
+    "Copa América 2024": {"competition_id": 223, "season_id": 282, "continente":"América do Sul"},
+    "UEFA Euro 2024": {"competition_id": 55, "season_id": 282, "continente":"Europa"},
 }
 
 # ---Carregamento com Cache ---
@@ -37,8 +37,8 @@ def agregar_torneio(cid,sid):
     for mid in match_ids:
         ev = carregar_eventos(mid)
 
-        shots = ev[ev['type_name'] == 'Shot']
-        passes = ev[ev['type_name'] == 'Pass']
+        shots = ev[ev['type'] == 'Shot']
+        passes = ev[ev['type'] == 'Pass']
 
         tot["chutes"] += len(shots)
         tot["gols"] += int((shots['shot_outcome'] == 'Goal').sum()) if 'shot_outcome' in ev.columns else 0
@@ -49,7 +49,7 @@ def agregar_torneio(cid,sid):
         if "foul_committed_card" in ev.columns:
             tot["amarelos"]  += int((ev["foul_committed_card"] == "Yellow Card").sum())
             tot["vermelhos"] += int(ev["foul_committed_card"].isin(["Red Card", "Second Yellow"]).sum())
-    tot[partidas] = len(match_ids)
+    tot["partidas"] = len(match_ids)
     return tot
 
 @st.cache_data(show_spinner=False)
@@ -73,3 +73,48 @@ def coletar_chutes(cid,sid):
 
 def por_partida(tot, chave):
     return tot[chave] / tot["partidas"] if tot["partidas"] else 0
+
+# =====INTERFACE=====
+st.title("Futebol: Europa vs América do Sul")
+st.caption("Comparativo entre torneios de seleções da Europa e América do Sul em 2024 (Dados StatsBomb)")
+
+#Carregar os agregados de ambos torneios
+with st.spinner("Carregando dados da Euro 2024 (Primeira vez mais demorada)..."):
+    dados = {
+        nome: agregar_torneio(t["competition_id"], t["season_id"])
+        for nome, t in Torneios.items()
+    }
+
+nomes = list(Torneios.keys()) # [Copa America, Euro]
+
+aba1, aba2, aba3, aba4 = st.tabs(
+    ["Visao geral", "Estilo de jogo", "Intensidade fisica", "Finalizacao"]
+)
+
+# Visão geral
+with aba1:
+    st.subheader("Media por partida")
+    for nome in nomes:
+        t = dados[nome]
+        st.markdown(f"### {nome} — {Torneios[nome]['continente']}")
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Gols/jogo", f"{por_partida(t, 'gols'):.2f}")
+        c2.metric("Chutes/jogo", f"{por_partida(t, 'chutes'):.1f}")
+        c3.metric("Passes/jogo", f"{por_partida(t, 'passes'):.0f}")
+        c4.metric("Faltas/jogo", f"{por_partida(t, 'faltas'):.1f}")
+
+# Estilo de jogo
+with aba2:
+    st.subheader("Volume e precisão de passes")
+    tabela = []
+    for nome in nomes:
+        t = dados[nome]
+        precisao = 100 * t["passes_certos"] / t["passes"] if t["passes"] else 0
+        tabela.append({
+            "Torneio": nome,
+            "Passes/jogo": round(por_partida(t, "passes")),
+            "Precisão (%)": round(precisao, 1),
+        })
+    df_estilo = pd.DataFrame(tabela).set_index("Torneio")
+    st.dataframe(df_estilo)
+    st.bar_chart(df_estilo["Passes/jogo"])
