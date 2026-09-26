@@ -171,8 +171,10 @@ with aba5:
     rotulo = st.selectbox("Partida", partidas_ind["rotulo"], key="partida_ind")
     match_id = int(partidas_ind[partidas_ind["rotulo"] == rotulo]["match_id"].iloc[0])
 
-    with st.spinner("Carregando eventos da partida..."):
-        ev = carregar_eventos(match_id)
+    barra = st.progress(0, text="Carregando eventos da partida...")
+    ev = carregar_eventos(match_id)
+    barra.progress(100, text="Eventos carregados!")
+    barra.empty()
 
     jogadores = ["Todos"] + sorted(ev["player"].dropna().unique().tolist())
     jogador = st.selectbox("Jogador", jogadores, key="jogador_ind")
@@ -232,30 +234,38 @@ with aba6:
 with aba7:
     st.subheader("Comparar dois jogadores")
 
-    categorias = ["Todas", "Goleiro", "Defesa", "Meio", "Ataque"]
+    # categoria FORA do form → atualiza a lista na hora
     cat_comp = st.selectbox("Filtrar por posição", categorias, key="cat_comp")
-
     base = df_jogadores if cat_comp == "Todas" else df_jogadores[df_jogadores["categoria"] == cat_comp]
     lista = sorted(base["jogador"].unique())
 
-    if len(lista) < 2:
-        st.warning("Poucos jogadores nessa posição para comparar.")
-    else:
+    # só os jogadores DENTRO do form
+    with st.form("form_comp"):
         col1, col2 = st.columns(2)
         with col1:
-            j1 = st.selectbox("Jogador 1", lista, key="j1")
+            j1 = st.selectbox("Jogador 1", lista, key="sel_j1")
         with col2:
-            j2 = st.selectbox("Jogador 2", lista, index=1, key="j2")
+            j2 = st.selectbox("Jogador 2", lista, index=min(1, len(lista) - 1), key="sel_j2")
+        enviar = st.form_submit_button("Comparar")
 
-        d1 = base[base["jogador"] == j1].iloc[0]
-        d2 = base[base["jogador"] == j2].iloc[0]
+    if enviar:
+        st.session_state["comparacao"] = {"j1": j1, "j2": j2}
 
-        st.markdown(f"**{j1}** ({d1['continente']} · {d1['categoria']}) × **{j2}** ({d2['continente']} · {d2['categoria']})")
+    if "comparacao" in st.session_state:
+        c = st.session_state["comparacao"]
+        if c["j1"] in base["jogador"].values and c["j2"] in base["jogador"].values:
+            d1 = base[base["jogador"] == c["j1"]].iloc[0]
+            d2 = base[base["jogador"] == c["j2"]].iloc[0]
 
-        metricas = ["gols", "chutes", "passes", "faltas", "precisao_passe"]
-        if d1["categoria"] == "Goleiro" and d2["categoria"] == "Goleiro":
-            metricas = ["defesas", "gols_sofridos", "taxa_defesa", "passes", "precisao_passe"]
-        for met in metricas:            
-            c1, c2 = st.columns(2)
-            c1.metric(f"{j1} — {met}", d1[met])
-            c2.metric(f"{j2} — {met}", d2[met])
+            st.markdown(f"**{c['j1']}** ({d1['continente']} · {d1['categoria']}) × **{c['j2']}** ({d2['continente']} · {d2['categoria']})")
+
+            metricas = ["gols", "chutes", "passes", "faltas", "precisao_passe"]
+            if d1["categoria"] == "Goleiro" and d2["categoria"] == "Goleiro":
+                metricas = ["defesas", "gols_sofridos", "taxa_defesa", "passes", "precisao_passe"]
+
+            for met in metricas:
+                mc1, mc2 = st.columns(2)
+                mc1.metric(f"{c['j1']} — {met}", d1[met])
+                mc2.metric(f"{c['j2']} — {met}", d2[met])
+        else:
+            st.info("Selecione jogadores dessa posição e clique em Comparar.")
