@@ -93,8 +93,8 @@ df_torneios, df_jogadores, df_chutes = carregar_agregados()
 nomes = list(Torneios.keys()) # [Copa America, Euro]
 
 aba1, aba2, aba3, aba4, aba5, aba6, aba7 = st.tabs(
-    ["Visao geral", "Estilo de jogo", "Intensidade fisica", "Finalizacao",
-     "Partida individual", "Ranking", "Comparar jogadores"]
+    ["📊 Visão geral", "⚽ Estilo de jogo", "🟨 Intensidade física", "🎯 Finalização",
+     "🔍 Partida individual", "🏆 Ranking", "⚖️ Comparar jogadores"]
 )
 
 # Visão geral
