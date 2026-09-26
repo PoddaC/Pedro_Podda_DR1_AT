@@ -6,6 +6,7 @@ import pandas as pd
 from statsbombpy import sb
 import matplotlib.pyplot as plt
 from mplsoccer import Pitch
+import seaborn as sns
 
 st.set_page_config(page_title="Europa vs América do Sul", layout="wide")
 
@@ -34,6 +35,25 @@ def carregar_agregados():
     chutes = pd.read_csv("dados_chutes.csv")
     return torneios, jogadores, chutes
 
+def mapa_de_passes(eventos, jogador=None):
+    """Mapa de passes de uma partida. Se jogador for informado, filtra só os dele."""
+    passes = eventos[eventos["type"] == "Pass"].copy()
+    if jogador and jogador != "Todos":
+        passes = passes[passes["player"] == jogador]
+
+    pitch = Pitch(pitch_type="statsbomb", line_color="black", pitch_color="white")
+    fig, ax = pitch.draw(figsize=(8, 5))
+
+    for _, p in passes.iterrows():
+        inicio, fim = p["location"], p["pass_end_location"]
+        if not (isinstance(inicio, list) and isinstance(fim, list)):
+            continue
+        completo = pd.isna(p.get("pass_outcome"))
+        cor = "blue" if completo else "red"
+        pitch.arrows(inicio[0], inicio[1], fim[0], fim[1],
+                     ax=ax, color=cor, width=2, headwidth=4, alpha=0.6)
+    return fig
+
 # =====INTERFACE=====
 st.title("Futebol: Europa vs América do Sul")
 st.caption("Comparativo entre torneios de seleções da Europa e América do Sul em 2024 (Dados StatsBomb)")
@@ -42,8 +62,9 @@ df_torneios, df_jogadores, df_chutes = carregar_agregados()
 
 nomes = list(Torneios.keys()) # [Copa America, Euro]
 
-aba1, aba2, aba3, aba4 = st.tabs(
-    ["Visao geral", "Estilo de jogo", "Intensidade fisica", "Finalizacao"]
+aba1, aba2, aba3, aba4, aba5, aba6, aba7 = st.tabs(
+    ["Visao geral", "Estilo de jogo", "Intensidade fisica", "Finalizacao",
+     "Partida individual", "Ranking", "Comparar jogadores"]
 )
 
 # Visão geral
@@ -107,3 +128,94 @@ with aba4:
             st.pyplot(fig)
             conv = 100 * len(chutes[chutes["gol"]]) / len(chutes) if len(chutes) else 0
             st.metric("Conversão de chutes (%)", f"{conv:.1f}")
+
+# Partida individual
+with aba5:
+    st.subheader("Análise de uma partida")
+
+    torneio_ind = st.selectbox("Torneio", nomes, key="torneio_ind")
+    t = Torneios[torneio_ind]
+    partidas_ind = carregar_partidas(t["competition_id"], t["season_id"])
+    partidas_ind["rotulo"] = partidas_ind["home_team"] + " x " + partidas_ind["away_team"]
+
+    rotulo = st.selectbox("Partida", partidas_ind["rotulo"], key="partida_ind")
+    match_id = int(partidas_ind[partidas_ind["rotulo"] == rotulo]["match_id"].iloc[0])
+
+    with st.spinner("Carregando eventos da partida..."):
+        ev = carregar_eventos(match_id)
+
+    jogadores = ["Todos"] + sorted(ev["player"].dropna().unique().tolist())
+    jogador = st.selectbox("Jogador", jogadores, key="jogador_ind")
+
+    st.markdown("#### Mapa de passes")
+    st.caption("Azul = passe completo · Vermelho = passe perdido")
+    fig = mapa_de_passes(ev, jogador)
+    st.pyplot(fig)
+
+    # eventos filtrados + download CSV
+    eventos_mostrar = ev if jogador == "Todos" else ev[ev["player"] == jogador]
+    colunas = ["minute", "second", "type", "team", "player"]
+    tabela_ev = eventos_mostrar[colunas]
+
+    st.markdown("#### Eventos")
+    st.dataframe(tabela_ev, use_container_width=True)
+
+    csv = tabela_ev.to_csv(index=False).encode("utf-8")
+    st.download_button(
+        "Baixar eventos em CSV",
+        data=csv,
+        file_name=f"eventos_{rotulo}.csv",
+        mime="text/csv",
+    )
+
+# Ranking de jogadores
+with aba6:
+    st.subheader("Ranking de jogadores")
+    st.caption("Somatório de cada jogador nos dois torneios")
+
+    metrica = st.selectbox(
+        "Ordenar por",
+        ["gols", "passes", "chutes", "faltas", "precisao_passe"],
+        key="metrica_rank",
+    )
+    top_n = st.slider("Quantos mostrar", 5, 30, 10, key="top_rank")
+
+    ranking = df_jogadores.sort_values(metrica, ascending=False).head(top_n)
+    st.dataframe(
+        ranking[["jogador", "time", "continente", metrica]],
+        use_container_width=True,
+    )
+    st.markdown("#### Relação entre chutes e gols")
+    st.caption("Cada ponto é um jogador · cor por continente")
+
+    fig, ax = plt.subplots(figsize=(8, 5))
+    sns.scatterplot(
+        data=df_jogadores,
+        x="chutes", y="gols",
+        hue="continente",
+        alpha=0.6, ax=ax,
+    )
+    ax.set_xlabel("Chutes no torneio")
+    ax.set_ylabel("Gols no torneio")
+    st.pyplot(fig)
+
+# Comparar dois jogadores
+with aba7:
+    st.subheader("Comparar dois jogadores")
+    lista = sorted(df_jogadores["jogador"].unique())
+
+    col1, col2 = st.columns(2)
+    with col1:
+        j1 = st.selectbox("Jogador 1", lista, key="j1")
+    with col2:
+        j2 = st.selectbox("Jogador 2", lista, index=1, key="j2")
+
+    d1 = df_jogadores[df_jogadores["jogador"] == j1].iloc[0]
+    d2 = df_jogadores[df_jogadores["jogador"] == j2].iloc[0]
+
+    st.markdown(f"**{j1}** ({d1['continente']}) × **{j2}** ({d2['continente']})")
+
+    for met in ["gols", "chutes", "passes", "faltas", "precisao_passe"]:
+        c1, c2 = st.columns(2)
+        c1.metric(f"{j1} — {met}", d1[met])
+        c2.metric(f"{j2} — {met}", d2[met])
