@@ -33,7 +33,25 @@ def carregar_agregados():
     torneios = pd.read_csv("dados_torneios.csv").set_index("torneio")
     jogadores = pd.read_csv("dados_jogadores.csv")
     chutes = pd.read_csv("dados_chutes.csv")
+    jogadores = consolidar_jogadores(jogadores)   # <-- junta os fragmentos
     return torneios, jogadores, chutes
+
+def consolidar_jogadores(df):
+    df = df.copy()
+    df["acoes"] = df["passes"] + df["chutes"] + df["faltas"]
+    # posição principal = aquela em que o jogador foi mais ativo
+    idx = df.groupby(["jogador", "time", "continente"])["acoes"].idxmax()
+    pos = df.loc[idx, ["jogador", "time", "continente", "posicao"]]
+    # soma as estatísticas numéricas em uma linha por jogador
+    num = df.groupby(["jogador", "time", "continente"], as_index=False)[
+        ["gols", "chutes", "passes", "passes_certos", "faltas", "defesas", "gols_sofridos"]
+    ].sum()
+    out = num.merge(pos, on=["jogador", "time", "continente"], how="left")
+    out["precisao_passe"] = (100 * out["passes_certos"] / out["passes"]).round(1)
+    out["taxa_defesa"] = (100 * out["defesas"] / (out["defesas"] + out["gols_sofridos"])).round(1)
+    out["taxa_defesa"] = out["taxa_defesa"].fillna(0)
+    out["categoria"] = out["posicao"].apply(categoria_posicao)
+    return out
 
 def mapa_de_passes(eventos, jogador=None):
     """Mapa de passes de uma partida. Se jogador for informado, filtra só os dele."""
@@ -54,6 +72,18 @@ def mapa_de_passes(eventos, jogador=None):
                      ax=ax, color=cor, width=2, headwidth=4, alpha=0.6)
     return fig
 
+def categoria_posicao(pos):
+    pos = str(pos)
+    if "Goalkeeper" in pos:
+        return "Goleiro"
+    if "Back" in pos or "Center Back" in pos:
+        return "Defesa"
+    if "Midfield" in pos:
+        return "Meio"
+    if "Forward" in pos or "Wing" in pos or "Striker" in pos:
+        return "Ataque"
+    return "Outro"
+
 # =====INTERFACE=====
 st.title("Futebol: Europa vs América do Sul")
 st.caption("Comparativo entre torneios de seleções da Europa e América do Sul em 2024 (Dados StatsBomb)")
@@ -71,7 +101,7 @@ aba1, aba2, aba3, aba4, aba5, aba6, aba7 = st.tabs(
 with aba1:
     st.subheader("Media por partida")
     for nome in nomes:
-        t = df_torneios.loc[nome]        
+        t = df_torneios.loc[nome]
         st.markdown(f"### {nome} — {Torneios[nome]['continente']}")
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("Gols/jogo", f"{por_partida(t, 'gols'):.2f}")
@@ -173,20 +203,19 @@ with aba6:
     st.subheader("Ranking de jogadores")
     st.caption("Somatório de cada jogador nos dois torneios")
 
-    metrica = st.selectbox(
-        "Ordenar por",
-        ["gols", "passes", "chutes", "faltas", "precisao_passe"],
-        key="metrica_rank",
-    )
+    metrica = st.selectbox("Ordenar por", ["gols", "passes", "chutes", "faltas", "precisao_passe", "defesas", "gols_sofridos", "taxa_defesa"], key="metrica_rank")
     top_n = st.slider("Quantos mostrar", 5, 30, 10, key="top_rank")
 
-    ranking = df_jogadores.sort_values(metrica, ascending=False).head(top_n)
+    categorias = ["Todas", "Goleiro", "Defesa", "Meio", "Ataque"]
+    cat_escolhida = st.selectbox("Posição", categorias, key="cat_rank")
+
+    base = df_jogadores if cat_escolhida == "Todas" else df_jogadores[df_jogadores["categoria"] == cat_escolhida]
+    ranking = base.sort_values(metrica, ascending=False).head(top_n)
+
     st.dataframe(
-        ranking[["jogador", "time", "continente", metrica]],
+        ranking[["jogador", "time", "continente", "categoria", metrica]],
         use_container_width=True,
     )
-    st.markdown("#### Relação entre chutes e gols")
-    st.caption("Cada ponto é um jogador · cor por continente")
 
     fig, ax = plt.subplots(figsize=(8, 5))
     sns.scatterplot(
@@ -202,20 +231,31 @@ with aba6:
 # Comparar dois jogadores
 with aba7:
     st.subheader("Comparar dois jogadores")
-    lista = sorted(df_jogadores["jogador"].unique())
 
-    col1, col2 = st.columns(2)
-    with col1:
-        j1 = st.selectbox("Jogador 1", lista, key="j1")
-    with col2:
-        j2 = st.selectbox("Jogador 2", lista, index=1, key="j2")
+    categorias = ["Todas", "Goleiro", "Defesa", "Meio", "Ataque"]
+    cat_comp = st.selectbox("Filtrar por posição", categorias, key="cat_comp")
 
-    d1 = df_jogadores[df_jogadores["jogador"] == j1].iloc[0]
-    d2 = df_jogadores[df_jogadores["jogador"] == j2].iloc[0]
+    base = df_jogadores if cat_comp == "Todas" else df_jogadores[df_jogadores["categoria"] == cat_comp]
+    lista = sorted(base["jogador"].unique())
 
-    st.markdown(f"**{j1}** ({d1['continente']}) × **{j2}** ({d2['continente']})")
+    if len(lista) < 2:
+        st.warning("Poucos jogadores nessa posição para comparar.")
+    else:
+        col1, col2 = st.columns(2)
+        with col1:
+            j1 = st.selectbox("Jogador 1", lista, key="j1")
+        with col2:
+            j2 = st.selectbox("Jogador 2", lista, index=1, key="j2")
 
-    for met in ["gols", "chutes", "passes", "faltas", "precisao_passe"]:
-        c1, c2 = st.columns(2)
-        c1.metric(f"{j1} — {met}", d1[met])
-        c2.metric(f"{j2} — {met}", d2[met])
+        d1 = base[base["jogador"] == j1].iloc[0]
+        d2 = base[base["jogador"] == j2].iloc[0]
+
+        st.markdown(f"**{j1}** ({d1['continente']} · {d1['categoria']}) × **{j2}** ({d2['continente']} · {d2['categoria']})")
+
+        metricas = ["gols", "chutes", "passes", "faltas", "precisao_passe"]
+        if d1["categoria"] == "Goleiro" and d2["categoria"] == "Goleiro":
+            metricas = ["defesas", "gols_sofridos", "taxa_defesa", "passes", "precisao_passe"]
+        for met in metricas:            
+            c1, c2 = st.columns(2)
+            c1.metric(f"{j1} — {met}", d1[met])
+            c2.metric(f"{j2} — {met}", d2[met])

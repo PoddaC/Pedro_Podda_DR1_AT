@@ -44,7 +44,7 @@ for nome, t in TORNEIOS.items():
         if "foul_committed_card" in ev.columns:
             tot["amarelos"] += int((ev["foul_committed_card"] == "Yellow Card").sum())
             tot["vermelhos"] += int(ev["foul_committed_card"].isin(["Red Card", "Second Yellow"]).sum())
-            
+
         # chutes com coordenada
         for _, r in shots.iterrows():
             loc = r["location"]
@@ -60,13 +60,28 @@ for nome, t in TORNEIOS.items():
         for jogador, g in evj.groupby("player"):
             s = g[g["type"] == "Shot"]
             p = g[g["type"] == "Pass"]
+            # ações de goleiro
+            gk = g[g["type"] == "Goal Keeper"]
+            if "goalkeeper_type" in gk.columns:
+                defesas = int(gk["goalkeeper_type"].isin(["Shot Saved", "Saved Twice"]).sum())
+                gols_sofridos = int((gk["goalkeeper_type"] == "Goal Conceded").sum())
+            else:
+                defesas = 0
+                gols_sofridos = 0
+            if "position" in g.columns and g["position"].notna().any():
+                posicao = g["position"].mode().iloc[0]
+            else:
+                posicao = "Desconhecida"
             linhas_jogador.append({
                 "jogador": jogador, "time": g["team"].iloc[0],
                 "continente": t["continente"],
+                "posicao": posicao,
                 "gols": int((s["shot_outcome"] == "Goal").sum()) if "shot_outcome" in g.columns else 0,
                 "chutes": len(s), "passes": len(p),
                 "passes_certos": int(p["pass_outcome"].isna().sum()) if "pass_outcome" in g.columns else len(p),
                 "faltas": int((g["type"] == "Foul Committed").sum()),
+                "defesas": defesas,
+                "gols_sofridos": gols_sofridos,
             })
 
     tot["torneio"] = nome
@@ -78,7 +93,7 @@ for nome, t in TORNEIOS.items():
 pd.DataFrame(linhas_torneio).to_csv("dados_torneios.csv", index=False)
 
 df_j = pd.DataFrame(linhas_jogador)
-df_j = df_j.groupby(["jogador", "time", "continente"], as_index=False).sum()
+df_j = df_j.groupby(["jogador", "time", "continente", "posicao"], as_index=False).sum()
 df_j["precisao_passe"] = (100 * df_j["passes_certos"] / df_j["passes"]).round(1)
 df_j.to_csv("dados_jogadores.csv", index=False)
 
