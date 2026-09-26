@@ -58,7 +58,7 @@ def coletar_chutes(cid,sid):
     linhas = []
     for mid in partidas['match_id'].tolist():
         ev = carregar_eventos(mid)
-        chutes = ev[ev['type_name'] == 'Shot']
+        chutes = ev[ev['type'] == 'Shot']
         if "location" not in chutes.columns:
             continue
         for _, r in chutes.iterrows():
@@ -118,3 +118,39 @@ with aba2:
     df_estilo = pd.DataFrame(tabela).set_index("Torneio")
     st.dataframe(df_estilo)
     st.bar_chart(df_estilo["Passes/jogo"])
+
+#Intensidade física
+with aba3:
+    st.subheader("Faltas e cartões")
+    tabela = []
+    for nome in nomes:
+        t = dados[nome]
+        tabela.append({
+            "Torneio": nome,
+            "Faltas/jogo": round(por_partida(t, "faltas"), 1),
+            "Amarelos/jogo": round(por_partida(t, "amarelos"), 2),
+            "Vermelhos (total)": t["vermelhos"],
+        })
+    df_intensidade = pd.DataFrame(tabela).set_index("Torneio")
+    st.dataframe(df_intensidade)
+
+# Finalização
+with aba4:
+    st.subheader("Mapa de chutes agregado")
+    col_a, col_b = st.columns(2)
+    for coluna, nome in zip([col_a, col_b], nomes):
+        with coluna:
+            st.markdown(f"**{nome}**")
+            chutes = coletar_chutes(
+                Torneios[nome]["competition_id"], Torneios[nome]["season_id"]
+            )
+            pitch = Pitch(pitch_type="statsbomb", half=True, line_color="black")
+            fig, ax = pitch.draw(figsize=(6, 4))
+            if not chutes.empty:
+                gols = chutes[chutes["gol"]]
+                nao = chutes[~chutes["gol"]]
+                pitch.scatter(nao["x"], nao["y"], ax=ax, color="gray", s=15, alpha=0.4)
+                pitch.scatter(gols["x"], gols["y"], ax=ax, color="red", s=40)
+            st.pyplot(fig)
+            conv = 100 * len(chutes[chutes["gol"]]) / len(chutes) if len(chutes) else 0
+            st.metric("Conversão de chutes (%)", f"{conv:.1f}")
