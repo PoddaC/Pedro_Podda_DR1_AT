@@ -28,8 +28,7 @@ for nome, t in TORNEIOS.items():
     partidas = sb.matches(competition_id=t["competition_id"], season_id=t["season_id"])
     match_ids = partidas["match_id"].tolist()
 
-    tot = {"gols": 0, "chutes": 0, "passes": 0, "passes_certos": 0, "faltas": 0}
-
+    tot = {"gols": 0, "chutes": 0, "passes": 0, "passes_certos": 0, "faltas": 0, "amarelos": 0, "vermelhos": 0}
     for i, mid in enumerate(match_ids, 1):
         print(f"  partida {i}/{len(match_ids)}")
         ev = eventos_partida(mid)
@@ -42,7 +41,10 @@ for nome, t in TORNEIOS.items():
         tot["passes"] += len(passes)
         tot["passes_certos"] += int(passes["pass_outcome"].isna().sum()) if "pass_outcome" in ev.columns else len(passes)
         tot["faltas"] += int((ev["type"] == "Foul Committed").sum())
-
+        if "foul_committed_card" in ev.columns:
+            tot["amarelos"] += int((ev["foul_committed_card"] == "Yellow Card").sum())
+            tot["vermelhos"] += int(ev["foul_committed_card"].isin(["Red Card", "Second Yellow"]).sum())
+            
         # chutes com coordenada
         for _, r in shots.iterrows():
             loc = r["location"]

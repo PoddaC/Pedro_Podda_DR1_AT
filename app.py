@@ -6,7 +6,6 @@ import pandas as pd
 from statsbombpy import sb
 import matplotlib.pyplot as plt
 from mplsoccer import Pitch
-from statsbombpy import sb
 
 st.set_page_config(page_title="Europa vs América do Sul", layout="wide")
 
@@ -25,65 +24,21 @@ def carregar_partidas(cid,sid):
 def carregar_eventos(match_id):
     return sb.events(match_id=match_id)
 
-@st.cache_data(show_spinner=False)
-#Percorrer todas as partidas do torneio e soma as estatiscas
-def agregar_torneio(cid,sid):
-    partidas = carregar_partidas(cid,sid)
-    match_ids = partidas['match_id'].tolist()
+def por_partida(t, chave):
+    return t[chave] / t["partidas"] if t["partidas"] else 0
 
-    tot={"gols": 0, "chutes": 0, "passes": 0, "passes_certos": 0,
-        "faltas": 0, "amarelos": 0, "vermelhos": 0}
-
-    for mid in match_ids:
-        ev = carregar_eventos(mid)
-
-        shots = ev[ev['type'] == 'Shot']
-        passes = ev[ev['type'] == 'Pass']
-
-        tot["chutes"] += len(shots)
-        tot["gols"] += int((shots['shot_outcome'] == 'Goal').sum()) if 'shot_outcome' in ev.columns else 0
-        tot["passes"] += len(passes)
-        tot["passes_certos"] += int(passes["pass_outcome"].isna().sum()) if "pass_outcome" in ev.columns else len(passes)
-        tot["faltas"] += int((ev["type"] == "Foul Committed").sum())
-
-        if "foul_committed_card" in ev.columns:
-            tot["amarelos"]  += int((ev["foul_committed_card"] == "Yellow Card").sum())
-            tot["vermelhos"] += int(ev["foul_committed_card"].isin(["Red Card", "Second Yellow"]).sum())
-    tot["partidas"] = len(match_ids)
-    return tot
-
-@st.cache_data(show_spinner=False)
-def coletar_chutes(cid,sid):
-    partidas = carregar_partidas(cid,sid)
-    linhas = []
-    for mid in partidas['match_id'].tolist():
-        ev = carregar_eventos(mid)
-        chutes = ev[ev['type'] == 'Shot']
-        if "location" not in chutes.columns:
-            continue
-        for _, r in chutes.iterrows():
-            loc = r["location"]
-            if isinstance(loc, list) and len(loc) == 2:
-                linhas.append({
-                    "x":loc[0],
-                    "y":loc[1],
-                    "gol":r.get("shot_outcome") == "Goal",
-                    })
-    return pd.DataFrame(linhas)
-
-def por_partida(tot, chave):
-    return tot[chave] / tot["partidas"] if tot["partidas"] else 0
+@st.cache_data
+def carregar_agregados():
+    torneios = pd.read_csv("dados_torneios.csv").set_index("torneio")
+    jogadores = pd.read_csv("dados_jogadores.csv")
+    chutes = pd.read_csv("dados_chutes.csv")
+    return torneios, jogadores, chutes
 
 # =====INTERFACE=====
 st.title("Futebol: Europa vs América do Sul")
 st.caption("Comparativo entre torneios de seleções da Europa e América do Sul em 2024 (Dados StatsBomb)")
 
-#Carregar os agregados de ambos torneios
-with st.spinner("Carregando dados da Euro 2024 (Primeira vez mais demorada)..."):
-    dados = {
-        nome: agregar_torneio(t["competition_id"], t["season_id"])
-        for nome, t in Torneios.items()
-    }
+df_torneios, df_jogadores, df_chutes = carregar_agregados()
 
 nomes = list(Torneios.keys()) # [Copa America, Euro]
 
@@ -95,7 +50,7 @@ aba1, aba2, aba3, aba4 = st.tabs(
 with aba1:
     st.subheader("Media por partida")
     for nome in nomes:
-        t = dados[nome]
+        t = df_torneios.loc[nome]        
         st.markdown(f"### {nome} — {Torneios[nome]['continente']}")
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("Gols/jogo", f"{por_partida(t, 'gols'):.2f}")
@@ -108,7 +63,7 @@ with aba2:
     st.subheader("Volume e precisão de passes")
     tabela = []
     for nome in nomes:
-        t = dados[nome]
+        t = df_torneios.loc[nome]
         precisao = 100 * t["passes_certos"] / t["passes"] if t["passes"] else 0
         tabela.append({
             "Torneio": nome,
@@ -124,12 +79,12 @@ with aba3:
     st.subheader("Faltas e cartões")
     tabela = []
     for nome in nomes:
-        t = dados[nome]
+        t = df_torneios.loc[nome]
         tabela.append({
             "Torneio": nome,
             "Faltas/jogo": round(por_partida(t, "faltas"), 1),
             "Amarelos/jogo": round(por_partida(t, "amarelos"), 2),
-            "Vermelhos (total)": t["vermelhos"],
+            "Vermelhos (total)": int(t["vermelhos"]),
         })
     df_intensidade = pd.DataFrame(tabela).set_index("Torneio")
     st.dataframe(df_intensidade)
@@ -141,9 +96,7 @@ with aba4:
     for coluna, nome in zip([col_a, col_b], nomes):
         with coluna:
             st.markdown(f"**{nome}**")
-            chutes = coletar_chutes(
-                Torneios[nome]["competition_id"], Torneios[nome]["season_id"]
-            )
+            chutes = df_chutes[df_chutes["torneio"] == nome]
             pitch = Pitch(pitch_type="statsbomb", half=True, line_color="black")
             fig, ax = pitch.draw(figsize=(6, 4))
             if not chutes.empty:
