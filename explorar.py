@@ -33,3 +33,13 @@ print("Tipos de evento:", ev["type"].unique())
 print("Existe 'type_name'?:", "type_name" in ev.columns)
 print("Colunas de cartão:", [c for c in ev.columns if "card" in c])
 print("Existe 'shot_outcome'?:", "shot_outcome" in ev.columns)
+
+partidas = sb.matches(competition_id=55, season_id=282)
+ev = sb.events(match_id=partidas["match_id"].iloc[0])
+
+passes = ev[ev["type"] == "Pass"]
+print("Total de passes:", len(passes))
+print("Tem pass_end_location?:", "pass_end_location" in passes.columns)
+print("Exemplo location:", passes["location"].iloc[0])
+print("Exemplo pass_end_location:", passes["pass_end_location"].iloc[0])
+print("Colunas de passe:", [c for c in passes.columns if c.startswith("pass")])
